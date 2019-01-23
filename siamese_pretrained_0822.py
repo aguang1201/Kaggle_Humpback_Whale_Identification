@@ -10,7 +10,8 @@ from lap import lapjv
 from math import sqrt
 # Determine the size of each image
 from os.path import isfile
-
+from keras.callbacks import ModelCheckpoint, TensorBoard
+from keras.utils import multi_gpu_model
 import keras
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,6 +34,8 @@ import time
 import os
 import tensorflow as tf
 from datetime import datetime
+from callback import MultiGPUModelCheckpoint
+from losses import focal_loss
 
 data_dir = '/home/ys1/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
@@ -46,6 +49,7 @@ MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
+batch_size = 108
 
 class TrainingData(Sequence):
     def __init__(self, score, steps=1000, batch_size=32):
@@ -238,7 +242,7 @@ def build_transform(rotation, shear, height_zoom, width_zoom, height_shift, widt
     shear = np.deg2rad(shear)
     rotation_matrix = np.array(
         [[np.cos(rotation), np.sin(rotation), 0], [-np.sin(rotation), np.cos(rotation), 0], [0, 0, 1]])
-    shift_matrix = np.array([[1, 0, height_shift], [0, 1, width_shift], [0, 0, 1]])
+    # shift_matrix = np.array([[1, 0, height_shift], [0, 1, width_shift], [0, 0, 1]])
     shear_matrix = np.array([[1, np.sin(shear), 0], [0, np.cos(shear), 0], [0, 0, 1]])
     zoom_matrix = np.array([[1.0 / height_zoom, 0, 0], [0, 1.0 / width_zoom, 0], [0, 0, 1]])
     shift_matrix = np.array([[1, 0, -height_shift], [0, 1, -width_shift], [0, 0, 1]])
@@ -260,18 +264,22 @@ def read_cropped_image(p, augment):
     x0, y0, x1, y1 = row['x0'], row['y0'], row['x1'], row['y1']
     dx = x1 - x0
     dy = y1 - y0
-    x0 -= dx * crop_margin
-    x1 += dx * crop_margin + 1
-    y0 -= dy * crop_margin
-    y1 += dy * crop_margin + 1
-    if x0 < 0:
-        x0 = 0
-    if x1 > size_x:
-        x1 = size_x
-    if y0 < 0:
-        y0 = 0
-    if y1 > size_y:
-        y1 = size_y
+    # x0 -= dx * crop_margin
+    # x1 += dx * crop_margin + 1
+    # y0 -= dy * crop_margin
+    # y1 += dy * crop_margin + 1
+    # if x0 < 0:
+    #     x0 = 0
+    # if x1 > size_x:
+    #     x1 = size_x
+    # if y0 < 0:
+    #     y0 = 0
+    # if y1 > size_y:
+    #     y1 = size_y
+    x0 = max(0, x0 - dx * crop_margin)
+    x1 = min(size_x, x1 + dx * crop_margin + 1)
+    y0 = max(0, y0 - dy * crop_margin)
+    y1 = min(size_y, y1 + dy * crop_margin + 1)
     dx = x1 - x0
     dy = y1 - y0
     if dx > dy * anisotropy:
@@ -349,7 +357,7 @@ def build_model(lr, l2, activation='sigmoid'):
     kwargs = {'padding': 'same', 'kernel_regularizer': regul}
 
     inp = Input(shape=img_shape)  # 384x384x1
-    x = Conv2D(64, (9, 9), strides=2, activation='relu', **kwargs)(inp)
+    x = Conv2D(64, (9, 9), strides=2, activation='relu', **kwargs)(inp)  # 192x192x64
 
     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 96x96x64
     for _ in range(2):
@@ -393,17 +401,17 @@ def build_model(lr, l2, activation='sigmoid'):
     x2 = Lambda(lambda x: x[0] + x[1])([xa_inp, xb_inp])
     x3 = Lambda(lambda x: K.abs(x[0] - x[1]))([xa_inp, xb_inp])
     x4 = Lambda(lambda x: K.square(x))(x3)
-    x = Concatenate()([x1, x2, x3, x4])
-    x = Reshape((4, branch_model.output_shape[1], 1), name='reshape1')(x)
+    x = Concatenate()([x1, x2, x3, x4])    # ?x2048
+    x = Reshape((4, branch_model.output_shape[1], 1), name='reshape1')(x)    # ?x4x512x1
 
     # Per feature NN with shared weight is implemented using CONV2D with appropriate stride.
-    x = Conv2D(mid, (4, 1), activation='relu', padding='valid')(x)
-    x = Reshape((branch_model.output_shape[1], mid, 1))(x)
-    x = Conv2D(1, (1, mid), activation='linear', padding='valid')(x)
-    x = Flatten(name='flatten')(x)
+    x = Conv2D(mid, (4, 1), activation='relu', padding='valid')(x)      # ?x1x512xmid
+    x = Reshape((branch_model.output_shape[1], mid, 1))(x)              # ?x512xmidx1
+    x = Conv2D(1, (1, mid), activation='linear', padding='valid')(x)    # ?x512x1x1
+    x = Flatten(name='flatten')(x)                                      # ?x512
 
     # Weighted sum implemented as a Dense layer.
-    x = Dense(1, use_bias=True, activation=activation, name='weighted-average')(x)
+    x = Dense(1, use_bias=True, activation=activation, name='weighted-average')(x)      # ?x1
     head_model = Model([xa_inp, xb_inp], x, name='head')
 
     ########################
@@ -417,7 +425,8 @@ def build_model(lr, l2, activation='sigmoid'):
     xb = branch_model(img_b)
     x = head_model([xa, xb])
     model = Model([img_a, img_b], x)
-    model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
+    # model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
+    # model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
     return model, branch_model, head_model
 
 def set_lr(model, lr):
@@ -455,9 +464,9 @@ def compute_score(verbose=1):
     """
     Compute the score matrix by scoring every pictures from the training set against every other picture O(n^2).
     """
-    features = branch_model.predict_generator(FeatureGen(train, verbose=verbose), max_queue_size=12, workers=6,
+    features = branch_model.predict_generator(FeatureGen(train, verbose=verbose), max_queue_size=12, workers=12,
                                               verbose=0)
-    score = head_model.predict_generator(ScoreGen(features, verbose=verbose), max_queue_size=12, workers=6, verbose=0)
+    score = head_model.predict_generator(ScoreGen(features, verbose=verbose), max_queue_size=12, workers=12, verbose=0)
     score = score_reshape(score, features)
     return features, score
 
@@ -489,16 +498,49 @@ def make_steps(step, ampl):
     # Compute the match score for each picture pair
     features, score = compute_score()
 
-    # Train the model for 'step' epochs
-    history = model.fit_generator(
-        TrainingData(score + ampl * np.random.random_sample(size=score.shape), steps=step, batch_size=128),
-        initial_epoch=steps, epochs=steps + step, max_queue_size=12, workers=12, verbose=1).history
+    print("** check multiple gpu availability **")
+    output_weights_path = 'models/model_finetuning.h5'
+    gpus = len(os.getenv("CUDA_VISIBLE_DEVICES", "0,1").split(","))
+    if gpus > 1:
+        print(f"** multi_gpu_model is used! gpus={gpus} **")
+        model_train = multi_gpu_model(model, gpus)
+        # FIXME: currently (Keras 2.1.2) checkpoint doesn't work with multi_gpu_model
+        checkpoint = MultiGPUModelCheckpoint(
+            filepath=output_weights_path,
+            base_model=model,
+            save_best_only=False,
+            save_weights_only=False,
+        )
+    else:
+        model_train = model
+        checkpoint = ModelCheckpoint(
+            output_weights_path,
+            # save_weights_only=True,
+            save_best_only=True,
+            verbose=1,
+        )
+    model_train.compile(Adam(lr=64e-5), loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
+    # model_train.compile(Adam(lr=64e-5), loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
+    callbacks = [
+        checkpoint,
+        TensorBoard(log_dir="logs", batch_size=batch_size),
+    ]
+
+    # Train the model_train for 'step' epochs
+    history = model_train.fit_generator(
+        TrainingData(score + ampl * np.random.random_sample(size=score.shape), steps=step, batch_size=batch_size),
+        initial_epoch=steps,
+        epochs=steps + step,
+        max_queue_size=12,
+        workers=12,
+        verbose=1,
+        callbacks=callbacks,).history
     steps += step
 
     # Collect history data
     history['epochs'] = steps
     history['ms'] = np.mean(score)
-    history['lr'] = get_lr(model)
+    history['lr'] = get_lr(model_train)
     print(history['epochs'], history['lr'], history['ms'])
     histories.append(history)
 
@@ -599,7 +641,7 @@ for p, h in p2h.items():
 h2p = {}
 for h, ps in h2ps.items():
     h2p[h] = prefer(ps)
-len(h2p), list(h2p.items())[:5]
+# len(h2p), list(h2p.items())[:5]
 
 p2bb = pd.read_csv(BB_DF).set_index("Image")
 old_stderr = sys.stderr
@@ -609,10 +651,10 @@ img_shape = (384, 384, 1)  # The image shape used by the model
 anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
-p = list(tagged.keys())[312]
+# p = list(tagged.keys())[312]
 
 model, branch_model, head_model = build_model(64e-5, 0)
-
+model.summary()
 h2ws = {}
 new_whale = 'new_whale'
 for p, w in tagged.items():
@@ -658,9 +700,9 @@ for i, t in enumerate(train):
     t2i[t] = i
 
 # Test on a batch of 32 with random costs.
-score = np.random.random_sample(size=(len(train), len(train)))
-data = TrainingData(score, batch_size=128)
-(a, b), c = data[0]
+# score = np.random.random_sample(size=(len(train), len(train)))
+# data = TrainingData(score, batch_size=128)
+# (a, b), c = data[0]
 
 histories = []
 steps = 0
@@ -668,42 +710,41 @@ steps = 0
 if isfile(MPIOTTE_STANDARD_MODEL):
     tmp = keras.models.load_model(MPIOTTE_STANDARD_MODEL)
     model.set_weights(tmp.get_weights())
-else:
-    # epoch -> 10
-    make_steps(10, 1000)
-    ampl = 100.0
-    for _ in range(2):
-        print('noise ampl.  = ', ampl)
-        make_steps(5, ampl)
-        ampl = max(1.0, 100 ** -0.1 * ampl)
-#     # epoch -> 150
-#     for _ in range(18): make_steps(5, 1.0)
-#     # epoch -> 200
-#     set_lr(model, 16e-5)
-#     for _ in range(10): make_steps(5, 0.5)
-#     # epoch -> 240
-#     set_lr(model, 4e-5)
-#     for _ in range(8): make_steps(5, 0.25)
-#     # epoch -> 250
-#     set_lr(model, 1e-5)
-#     for _ in range(2): make_steps(5, 0.25)
-#     # epoch -> 300
-#     weights = model.get_weights()
-#     model, branch_model, head_model = build_model(64e-5, 0.0002)
-#     model.set_weights(weights)
-#     for _ in range(10): make_steps(5, 1.0)
-#     # epoch -> 350
-#     set_lr(model, 16e-5)
-#     for _ in range(10): make_steps(5, 0.5)
-#     # epoch -> 390
-#     set_lr(model, 4e-5)
-#     for _ in range(8): make_steps(5, 0.25)
-#     # epoch -> 400
-#     set_lr(model, 1e-5)
-#     for _ in range(2): make_steps(5, 0.25)
-#     model.save('standard.model')
-
-model.summary()
+# else:
+# epoch -> 10
+make_steps(10, 1000)
+ampl = 100.0
+for _ in range(2):
+    print('noise ampl.  = ', ampl)
+    make_steps(5, ampl)
+    ampl = max(1.0, 100 ** -0.1 * ampl)
+# epoch -> 150
+for _ in range(18): make_steps(5, 1.0)
+# epoch -> 200
+set_lr(model, 16e-5)
+for _ in range(10): make_steps(5, 0.5)
+# epoch -> 240
+set_lr(model, 4e-5)
+for _ in range(8): make_steps(5, 0.25)
+# epoch -> 250
+set_lr(model, 1e-5)
+for _ in range(2): make_steps(5, 0.25)
+# epoch -> 300
+weights = model.get_weights()
+model, branch_model, head_model = build_model(64e-5, 0.0002)
+model.set_weights(weights)
+for _ in range(10): make_steps(5, 1.0)
+# epoch -> 350
+set_lr(model, 16e-5)
+for _ in range(10): make_steps(5, 0.5)
+# epoch -> 390
+set_lr(model, 4e-5)
+for _ in range(8): make_steps(5, 0.25)
+# epoch -> 400
+set_lr(model, 1e-5)
+for _ in range(2): make_steps(5, 0.25)
+time_now = datetime.now()
+model.save(f'{MPIOTTE_STANDARD_MODEL}_{str(time_now)}')
 
 # Find elements from training sets not 'new_whale'
 tic = time.time()
