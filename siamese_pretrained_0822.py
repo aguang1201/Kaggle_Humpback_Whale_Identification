@@ -10,8 +10,7 @@ from lap import lapjv
 from math import sqrt
 # Determine the size of each image
 from os.path import isfile
-from keras.callbacks import ModelCheckpoint, TensorBoard
-from keras.utils import multi_gpu_model
+
 import keras
 import matplotlib.pyplot as plt
 import numpy as np
@@ -34,8 +33,6 @@ import time
 import os
 import tensorflow as tf
 from datetime import datetime
-from callback import MultiGPUModelCheckpoint
-from losses import focal_loss
 
 data_dir = '/home/ys1/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
@@ -49,7 +46,6 @@ MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
-batch_size = 108
 
 class TrainingData(Sequence):
     def __init__(self, score, steps=1000, batch_size=32):
@@ -425,8 +421,7 @@ def build_model(lr, l2, activation='sigmoid'):
     xb = branch_model(img_b)
     x = head_model([xa, xb])
     model = Model([img_a, img_b], x)
-    # model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-    # model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
+    model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
     return model, branch_model, head_model
 
 def set_lr(model, lr):
@@ -498,49 +493,16 @@ def make_steps(step, ampl):
     # Compute the match score for each picture pair
     features, score = compute_score()
 
-    print("** check multiple gpu availability **")
-    output_weights_path = 'models/model_finetuning.h5'
-    gpus = len(os.getenv("CUDA_VISIBLE_DEVICES", "0,1").split(","))
-    if gpus > 1:
-        print(f"** multi_gpu_model is used! gpus={gpus} **")
-        model_train = multi_gpu_model(model, gpus)
-        # FIXME: currently (Keras 2.1.2) checkpoint doesn't work with multi_gpu_model
-        checkpoint = MultiGPUModelCheckpoint(
-            filepath=output_weights_path,
-            base_model=model,
-            save_best_only=False,
-            save_weights_only=False,
-        )
-    else:
-        model_train = model
-        checkpoint = ModelCheckpoint(
-            output_weights_path,
-            # save_weights_only=True,
-            save_best_only=True,
-            verbose=1,
-        )
-    model_train.compile(Adam(lr=64e-5), loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-    # model_train.compile(Adam(lr=64e-5), loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
-    callbacks = [
-        checkpoint,
-        TensorBoard(log_dir="logs", batch_size=batch_size),
-    ]
-
-    # Train the model_train for 'step' epochs
-    history = model_train.fit_generator(
-        TrainingData(score + ampl * np.random.random_sample(size=score.shape), steps=step, batch_size=batch_size),
-        initial_epoch=steps,
-        epochs=steps + step,
-        max_queue_size=12,
-        workers=12,
-        verbose=1,
-        callbacks=callbacks,).history
+    # Train the model for 'step' epochs
+    history = model.fit_generator(
+        TrainingData(score + ampl * np.random.random_sample(size=score.shape), steps=step, batch_size=64),
+        initial_epoch=steps, epochs=steps + step, max_queue_size=12, workers=12, verbose=1).history
     steps += step
 
     # Collect history data
     history['epochs'] = steps
     history['ms'] = np.mean(score)
-    history['lr'] = get_lr(model_train)
+    history['lr'] = get_lr(model)
     print(history['epochs'], history['lr'], history['ms'])
     histories.append(history)
 
@@ -654,7 +616,7 @@ crop_margin = 0.05  # The margin added around the bounding box to compensate for
 # p = list(tagged.keys())[312]
 
 model, branch_model, head_model = build_model(64e-5, 0)
-model.summary()
+
 h2ws = {}
 new_whale = 'new_whale'
 for p, w in tagged.items():
@@ -700,9 +662,9 @@ for i, t in enumerate(train):
     t2i[t] = i
 
 # Test on a batch of 32 with random costs.
-# score = np.random.random_sample(size=(len(train), len(train)))
-# data = TrainingData(score, batch_size=128)
-# (a, b), c = data[0]
+score = np.random.random_sample(size=(len(train), len(train)))
+data = TrainingData(score, batch_size=128)
+(a, b), c = data[0]
 
 histories = []
 steps = 0
@@ -745,6 +707,8 @@ set_lr(model, 1e-5)
 for _ in range(2): make_steps(5, 0.25)
 time_now = datetime.now()
 model.save(f'{MPIOTTE_STANDARD_MODEL}_{str(time_now)}')
+
+model.summary()
 
 # Find elements from training sets not 'new_whale'
 tic = time.time()
