@@ -499,7 +499,7 @@ def make_steps(step, ampl):
     features, score = compute_score()
 
     time_now = datetime.now()
-    csv_logger = CSVLogger(f'history/trained_{str(time_now)}.csv')
+    csv_logger = CSVLogger(f'history/trained_binarycrossentropy.csv')
 
     print("** check multiple gpu availability **")
     output_weights_path = 'models/model_finetuning.h5'
@@ -522,8 +522,8 @@ def make_steps(step, ampl):
             save_best_only=True,
             verbose=1,
         )
-    model_train.compile(Adam(lr=64e-5), loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-    # model_train.compile(Adam(lr=64e-5), loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
+    # model_train.compile(Adam(lr=64e-5), loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
+    model_train.compile(Adam(lr=64e-5), loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
     callbacks = [
         csv_logger,
         checkpoint,
