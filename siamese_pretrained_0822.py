@@ -498,7 +498,7 @@ def make_steps(step, ampl):
     # Compute the match score for each picture pair
     features, score = compute_score()
 
-    time_now = datetime.now()
+    # time_now = datetime.now()
     csv_logger = CSVLogger(f'history/trained_binarycrossentropy.csv')
 
     print("** check multiple gpu availability **")
