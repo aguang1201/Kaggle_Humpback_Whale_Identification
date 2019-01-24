@@ -703,38 +703,47 @@ if isfile(MPIOTTE_STANDARD_MODEL):
 # else:
 # epoch -> 10
 make_steps(10, 1000)
+# epoch -> 60
 ampl = 100.0
-for _ in range(2):
+for _ in range(10):
     print('noise ampl.  = ', ampl)
     make_steps(5, ampl)
     ampl = max(1.0, 100 ** -0.1 * ampl)
+model.save(f'models/model_finetuning_epoch60.h5')
 # epoch -> 150
 for _ in range(18): make_steps(5, 1.0)
+model.save(f'models/model_finetuning_epoch150.h5')
 # epoch -> 200
 set_lr(model, 16e-5)
 for _ in range(10): make_steps(5, 0.5)
+model.save(f'models/model_finetuning_epoch200.h5')
 # epoch -> 240
 set_lr(model, 4e-5)
 for _ in range(8): make_steps(5, 0.25)
+model.save(f'models/model_finetuning_epoch240.h5')
 # epoch -> 250
 set_lr(model, 1e-5)
 for _ in range(2): make_steps(5, 0.25)
-# epoch -> 300
+model.save(f'models/model_finetuning_epoch250.h5')
+
 weights = model.get_weights()
 model, branch_model, head_model = build_model(64e-5, 0.0002)
 model.set_weights(weights)
+# epoch -> 300
 for _ in range(10): make_steps(5, 1.0)
+model.save(f'models/model_finetuning_epoch300.h5')
 # epoch -> 350
 set_lr(model, 16e-5)
 for _ in range(10): make_steps(5, 0.5)
+model.save(f'models/model_finetuning_epoch350.h5')
 # epoch -> 390
 set_lr(model, 4e-5)
 for _ in range(8): make_steps(5, 0.25)
+model.save(f'models/model_finetuning_epoch390.h5')
 # epoch -> 400
 set_lr(model, 1e-5)
 for _ in range(2): make_steps(5, 0.25)
-time_now = datetime.now()
-model.save(f'{MPIOTTE_STANDARD_MODEL}_{str(time_now)}')
+model.save(f'models/model_finetuning_epoch400.h5')
 
 # Find elements from training sets not 'new_whale'
 tic = time.time()
