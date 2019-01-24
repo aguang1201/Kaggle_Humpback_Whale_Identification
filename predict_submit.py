@@ -10,8 +10,6 @@ from lap import lapjv
 from math import sqrt
 # Determine the size of each image
 from os.path import isfile
-from keras.callbacks import ModelCheckpoint, TensorBoard, CSVLogger
-from keras.utils import multi_gpu_model
 import keras
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,6 +34,7 @@ import tensorflow as tf
 from datetime import datetime
 from callback import MultiGPUModelCheckpoint
 from losses import focal_loss
+from build_model import build_model
 
 data_dir = '/home/ys1/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
@@ -45,85 +44,12 @@ TEST = os.path.join(data_dir, 'test/')
 P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes.csv')
-MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
+# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
+MPIOTTE_STANDARD_MODEL = 'models/model_epoch7.h5'
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
 batch_size = 108
-
-class TrainingData(Sequence):
-    def __init__(self, score, steps=1000, batch_size=32):
-        """
-        @param score the cost matrix for the picture matching
-        @param steps the number of epoch we are planning with this score matrix
-        """
-        super(TrainingData, self).__init__()
-        self.score = -score  # Maximizing the score is the same as minimuzing -score.
-        self.steps = steps
-        self.batch_size = batch_size
-        for ts in w2ts.values():
-            idxs = [t2i[t] for t in ts]
-            for i in idxs:
-                for j in idxs:
-                    self.score[
-                        i, j] = 10000.0  # Set a large value for matching whales -- eliminates this potential pairing
-        self.on_epoch_end()
-
-    def __getitem__(self, index):
-        start = self.batch_size * index
-        end = min(start + self.batch_size, len(self.match) + len(self.unmatch))
-        size = end - start
-        assert size > 0
-        a = np.zeros((size,) + img_shape, dtype=K.floatx())
-        b = np.zeros((size,) + img_shape, dtype=K.floatx())
-        c = np.zeros((size, 1), dtype=K.floatx())
-        j = start // 2
-        for i in range(0, size, 2):
-            a[i, :, :, :] = read_for_training(self.match[j][0])
-            b[i, :, :, :] = read_for_training(self.match[j][1])
-            c[i, 0] = 1  # This is a match
-            a[i + 1, :, :, :] = read_for_training(self.unmatch[j][0])
-            b[i + 1, :, :, :] = read_for_training(self.unmatch[j][1])
-            c[i + 1, 0] = 0  # Different whales
-            j += 1
-        return [a, b], c
-
-    def on_epoch_end(self):
-        if self.steps <= 0: return  # Skip this on the last epoch.
-        self.steps -= 1
-        self.match = []
-        self.unmatch = []
-        _, _, x = lapjv(self.score)  # Solve the linear assignment problem
-        y = np.arange(len(x), dtype=np.int32)
-
-        # Compute a derangement for matching whales
-        for ts in w2ts.values():
-            d = ts.copy()
-            while True:
-                random.shuffle(d)
-                if not np.any(ts == d): break
-            for ab in zip(ts, d): self.match.append(ab)
-
-        # Construct unmatched whale pairs from the LAP solution.
-        for i, j in zip(x, y):
-            if i == j:
-                print(self.score)
-                print(x)
-                print(y)
-                print(i, j)
-            assert i != j
-            self.unmatch.append((train[i], train[j]))
-
-        # Force a different choice for an eventual next epoch.
-        self.score[x, y] = 10000.0
-        self.score[y, x] = 10000.0
-        random.shuffle(self.match)
-        random.shuffle(self.unmatch)
-        # print(len(self.match), len(train), len(self.unmatch), len(train))
-        assert len(self.match) == len(train) and len(self.unmatch) == len(train)
-
-    def __len__(self):
-        return (len(self.match) + len(self.unmatch) + self.batch_size - 1) // self.batch_size
 
 # A Keras generator to evaluate only the BRANCH MODEL
 class FeatureGen(Sequence):
@@ -209,15 +135,6 @@ def match(h1, h2):
     return True
 
 
-def show_whale(imgs, per_row=2):
-    n = len(imgs)
-    rows = (n + per_row - 1) // per_row
-    cols = min(per_row, n)
-    fig, axes = plt.subplots(rows, cols, figsize=(24 // per_row * cols, 24 // per_row * rows))
-    for ax in axes.flatten(): ax.axis('off')
-    for i, (img, ax) in enumerate(zip(imgs, axes.flatten())): ax.imshow(img.convert('RGB'))
-
-
 def read_raw_image(p):
     img = pil_image.open(expand_path(p))
     return img
@@ -264,18 +181,6 @@ def read_cropped_image(p, augment):
     x0, y0, x1, y1 = row['x0'], row['y0'], row['x1'], row['y1']
     dx = x1 - x0
     dy = y1 - y0
-    # x0 -= dx * crop_margin
-    # x1 += dx * crop_margin + 1
-    # y0 -= dy * crop_margin
-    # y1 += dy * crop_margin + 1
-    # if x0 < 0:
-    #     x0 = 0
-    # if x1 > size_x:
-    #     x1 = size_x
-    # if y0 < 0:
-    #     y0 = 0
-    # if y1 > size_y:
-    #     y1 = size_y
     x0 = max(0, x0 - dx * crop_margin)
     x1 = min(size_x, x1 + dx * crop_margin + 1)
     y0 = max(0, y0 - dy * crop_margin)
@@ -322,119 +227,12 @@ def read_cropped_image(p, augment):
     img /= np.std(img, keepdims=True) + K.epsilon()
     return img
 
-def read_for_training(p):
-    """
-    Read and preprocess an image with data augmentation (random transform).
-    """
-    return read_cropped_image(p, True)
-
 
 def read_for_validation(p):
     """
     Read and preprocess an image without data augmentation (use for testing).
     """
     return read_cropped_image(p, False)
-
-def subblock(x, filter, **kwargs):
-    x = BatchNormalization()(x)
-    y = x
-    y = Conv2D(filter, (1, 1), activation='relu', **kwargs)(y)  # Reduce the number of features to 'filter'
-    y = BatchNormalization()(y)
-    y = Conv2D(filter, (3, 3), activation='relu', **kwargs)(y)  # Extend the feature field
-    y = BatchNormalization()(y)
-    y = Conv2D(K.int_shape(x)[-1], (1, 1), **kwargs)(y)  # no activation # Restore the number of original features
-    y = Add()([x, y])  # Add the bypass connection
-    y = Activation('relu')(y)
-    return y
-
-
-def build_model(lr, l2, activation='sigmoid'):
-    ##############
-    # BRANCH MODEL
-    ##############
-    regul = regularizers.l2(l2)
-    optim = Adam(lr=lr)
-    kwargs = {'padding': 'same', 'kernel_regularizer': regul}
-
-    inp = Input(shape=img_shape)  # 384x384x1
-    x = Conv2D(64, (9, 9), strides=2, activation='relu', **kwargs)(inp)  # 192x192x64
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 96x96x64
-    for _ in range(2):
-        x = BatchNormalization()(x)
-        x = Conv2D(64, (3, 3), activation='relu', **kwargs)(x)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 48x48x64
-    x = BatchNormalization()(x)
-    x = Conv2D(128, (1, 1), activation='relu', **kwargs)(x)  # 48x48x128
-    for _ in range(4):
-        x = subblock(x, 64, **kwargs)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 24x24x128
-    x = BatchNormalization()(x)
-    x = Conv2D(256, (1, 1), activation='relu', **kwargs)(x)  # 24x24x256
-    for _ in range(4):
-        x = subblock(x, 64, **kwargs)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 12x12x256
-    x = BatchNormalization()(x)
-    x = Conv2D(384, (1, 1), activation='relu', **kwargs)(x)  # 12x12x384
-    for _ in range(4):
-        x = subblock(x, 96, **kwargs)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 6x6x384
-    x = BatchNormalization()(x)
-    x = Conv2D(512, (1, 1), activation='relu', **kwargs)(x)  # 6x6x512
-    for _ in range(4):
-        x = subblock(x, 128, **kwargs)
-
-    x = GlobalMaxPooling2D()(x)  # 512
-    branch_model = Model(inp, x)
-
-    ############
-    # HEAD MODEL
-    ############
-    mid = 32
-    xa_inp = Input(shape=branch_model.output_shape[1:])
-    xb_inp = Input(shape=branch_model.output_shape[1:])
-    x1 = Lambda(lambda x: x[0] * x[1])([xa_inp, xb_inp])
-    x2 = Lambda(lambda x: x[0] + x[1])([xa_inp, xb_inp])
-    x3 = Lambda(lambda x: K.abs(x[0] - x[1]))([xa_inp, xb_inp])
-    x4 = Lambda(lambda x: K.square(x))(x3)
-    x = Concatenate()([x1, x2, x3, x4])    # ?x2048
-    x = Reshape((4, branch_model.output_shape[1], 1), name='reshape1')(x)    # ?x4x512x1
-
-    # Per feature NN with shared weight is implemented using CONV2D with appropriate stride.
-    x = Conv2D(mid, (4, 1), activation='relu', padding='valid')(x)      # ?x1x512xmid
-    x = Reshape((branch_model.output_shape[1], mid, 1))(x)              # ?x512xmidx1
-    x = Conv2D(1, (1, mid), activation='linear', padding='valid')(x)    # ?x512x1x1
-    x = Flatten(name='flatten')(x)                                      # ?x512
-
-    # Weighted sum implemented as a Dense layer.
-    x = Dense(1, use_bias=True, activation=activation, name='weighted-average')(x)      # ?x1
-    head_model = Model([xa_inp, xb_inp], x, name='head')
-
-    ########################
-    # SIAMESE NEURAL NETWORK
-    ########################
-    # Complete model is constructed by calling the branch model on each input image,
-    # and then the head model on the resulting 512-vectors.
-    img_a = Input(shape=img_shape)
-    img_b = Input(shape=img_shape)
-    xa = branch_model(img_a)
-    xb = branch_model(img_b)
-    x = head_model([xa, xb])
-    model = Model([img_a, img_b], x)
-    # model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-    # model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
-    return model, branch_model, head_model
-
-def set_lr(model, lr):
-    K.set_value(model.optimizer.lr, float(lr))
-
-
-def get_lr(model):
-    return K.get_value(model.optimizer.lr)
 
 
 def score_reshape(score, x, y=None):
@@ -458,95 +256,6 @@ def score_reshape(score, x, y=None):
         iy = iy.reshape((iy.size,))
         m[iy, ix] = score.squeeze()
     return m
-
-
-def compute_score(verbose=1):
-    """
-    Compute the score matrix by scoring every pictures from the training set against every other picture O(n^2).
-    """
-    features = branch_model.predict_generator(FeatureGen(train, verbose=verbose), max_queue_size=12, workers=12,
-                                              verbose=0)
-    score = head_model.predict_generator(ScoreGen(features, verbose=verbose), max_queue_size=12, workers=12, verbose=0)
-    score = score_reshape(score, features)
-    return features, score
-
-
-def make_steps(step, ampl):
-    """
-    Perform training epochs
-    @param step Number of epochs to perform
-    @param ampl the K, the randomized component of the score matrix.
-    """
-    global w2ts, t2i, steps, features, score, histories
-
-    # shuffle the training pictures
-    random.shuffle(train)
-
-    # Map whale id to the list of associated training picture hash value
-    w2ts = {}
-    for w, hs in w2hs.items():
-        for h in hs:
-            if h in train_set:
-                if w not in w2ts: w2ts[w] = []
-                if h not in w2ts[w]: w2ts[w].append(h)
-    for w, ts in w2ts.items(): w2ts[w] = np.array(ts)
-
-    # Map training picture hash value to index in 'train' array
-    t2i = {}
-    for i, t in enumerate(train): t2i[t] = i
-
-    # Compute the match score for each picture pair
-    features, score = compute_score()
-
-    time_now = datetime.now()
-    csv_logger = CSVLogger(f'history/trained_{str(time_now)}.csv')
-
-    print("** check multiple gpu availability **")
-    output_weights_path = 'models/model_finetuning.h5'
-    gpus = len(os.getenv("CUDA_VISIBLE_DEVICES", "0,1").split(","))
-    if gpus > 1:
-        print(f"** multi_gpu_model is used! gpus={gpus} **")
-        model_train = multi_gpu_model(model, gpus)
-        # FIXME: currently (Keras 2.1.2) checkpoint doesn't work with multi_gpu_model
-        checkpoint = MultiGPUModelCheckpoint(
-            filepath=output_weights_path,
-            base_model=model,
-            save_best_only=False,
-            save_weights_only=False,
-        )
-    else:
-        model_train = model
-        checkpoint = ModelCheckpoint(
-            output_weights_path,
-            # save_weights_only=True,
-            save_best_only=True,
-            verbose=1,
-        )
-    model_train.compile(Adam(lr=64e-5), loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-    # model_train.compile(Adam(lr=64e-5), loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
-    callbacks = [
-        csv_logger,
-        checkpoint,
-        TensorBoard(log_dir="logs", batch_size=batch_size),
-    ]
-
-    # Train the model_train for 'step' epochs
-    history = model_train.fit_generator(
-        TrainingData(score + ampl * np.random.random_sample(size=score.shape), steps=step, batch_size=batch_size),
-        initial_epoch=steps,
-        epochs=steps + step,
-        max_queue_size=12,
-        workers=12,
-        verbose=1,
-        callbacks=callbacks,).history
-    steps += step
-
-    # Collect history data
-    history['epochs'] = steps
-    history['ms'] = np.mean(score)
-    history['lr'] = get_lr(model_train)
-    print(history['epochs'], history['lr'], history['ms'])
-    histories.append(history)
 
 def prepare_submission(threshold, filename):
     """
@@ -634,8 +343,7 @@ else:
         h = str(h)
         if h in h2h: h = h2h[h]
         p2h[p] = h
-#     with open(P2H, 'wb') as f:
-#         pickle.dump(p2h, f)
+
 # For each image id, determine the list of pictures
 h2ps = {}
 for p, h in p2h.items():
@@ -645,7 +353,6 @@ for p, h in p2h.items():
 h2p = {}
 for h, ps in h2ps.items():
     h2p[h] = prefer(ps)
-# len(h2p), list(h2p.items())[:5]
 
 p2bb = pd.read_csv(BB_DF).set_index("Image")
 old_stderr = sys.stderr
@@ -657,7 +364,7 @@ crop_margin = 0.05  # The margin added around the bounding box to compensate for
 
 # p = list(tagged.keys())[312]
 
-model, branch_model, head_model = build_model(64e-5, 0)
+model, branch_model, head_model = build_model(lr=64e-5, l2=0, img_shape=img_shape)
 model.summary()
 h2ws = {}
 new_whale = 'new_whale'
@@ -681,74 +388,14 @@ for w, hs in w2hs.items():
     if len(hs) > 1:
         w2hs[w] = sorted(hs)
 
-train = []  # A list of training image ids
-for hs in w2hs.values():
-    if len(hs) > 1:
-        train += hs
-random.shuffle(train)
-train_set = set(train)
-
-w2ts = {}  # Associate the image ids from train to each whale id.
-for w, hs in w2hs.items():
-    for h in hs:
-        if h in train_set:
-            if w not in w2ts:
-                w2ts[w] = []
-            if h not in w2ts[w]:
-                w2ts[w].append(h)
-for w, ts in w2ts.items():
-    w2ts[w] = np.array(ts)
-
-t2i = {}  # The position in train of each training image id
-for i, t in enumerate(train):
-    t2i[t] = i
-
-# Test on a batch of 32 with random costs.
-# score = np.random.random_sample(size=(len(train), len(train)))
-# data = TrainingData(score, batch_size=128)
-# (a, b), c = data[0]
-
 histories = []
 steps = 0
 
 if isfile(MPIOTTE_STANDARD_MODEL):
     tmp = keras.models.load_model(MPIOTTE_STANDARD_MODEL)
     model.set_weights(tmp.get_weights())
-# else:
-# epoch -> 10
-make_steps(10, 1000)
-ampl = 100.0
-for _ in range(2):
-    print('noise ampl.  = ', ampl)
-    make_steps(5, ampl)
-    ampl = max(1.0, 100 ** -0.1 * ampl)
-# epoch -> 150
-for _ in range(18): make_steps(5, 1.0)
-# epoch -> 200
-set_lr(model, 16e-5)
-for _ in range(10): make_steps(5, 0.5)
-# epoch -> 240
-set_lr(model, 4e-5)
-for _ in range(8): make_steps(5, 0.25)
-# epoch -> 250
-set_lr(model, 1e-5)
-for _ in range(2): make_steps(5, 0.25)
-# epoch -> 300
-weights = model.get_weights()
-model, branch_model, head_model = build_model(64e-5, 0.0002)
-model.set_weights(weights)
-for _ in range(10): make_steps(5, 1.0)
-# epoch -> 350
-set_lr(model, 16e-5)
-for _ in range(10): make_steps(5, 0.5)
-# epoch -> 390
-set_lr(model, 4e-5)
-for _ in range(8): make_steps(5, 0.25)
-# epoch -> 400
-set_lr(model, 1e-5)
-for _ in range(2): make_steps(5, 0.25)
-time_now = datetime.now()
-model.save(f'{MPIOTTE_STANDARD_MODEL}_{str(time_now)}')
+else:
+    print('no model file!!!')
 
 # Find elements from training sets not 'new_whale'
 tic = time.time()
@@ -759,10 +406,6 @@ for p, w in tagged.items():
         if h not in h2ws: h2ws[h] = []
         if w not in h2ws[h]: h2ws[h].append(w)
 known = sorted(list(h2ws.keys()))
-
-# Dictionary of picture indices
-# h2i = {}
-# for i, h in enumerate(known): h2i[h] = i
 
 # Evaluate the model.
 fknown = branch_model.predict_generator(FeatureGen(known), max_queue_size=20, workers=12, verbose=0)
