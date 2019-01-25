@@ -500,7 +500,7 @@ def make_steps(step, ampl):
 
     # time_now = datetime.now()
     history_dir = os.path.join(output_dir, 'history')
-    csv_logger = CSVLogger(os.path.join(history_dir, f'trained_binarycrossentropy_{step}.csv'))
+    csv_logger = CSVLogger(os.path.join(history_dir, f'trained_binarycrossentropy_{steps + step}.csv'))
     if not os.path.exists(history_dir):
         os.mkdir(history_dir)
     print("** check multiple gpu availability **")
