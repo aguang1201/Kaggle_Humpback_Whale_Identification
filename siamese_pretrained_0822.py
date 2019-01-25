@@ -513,7 +513,7 @@ def make_steps(step, ampl):
         checkpoint = MultiGPUModelCheckpoint(
             filepath=output_weights_path,
             base_model=model,
-            save_best_only=True,
+            save_best_only=False,
             save_weights_only=False,
         )
     else:
@@ -521,7 +521,7 @@ def make_steps(step, ampl):
         checkpoint = ModelCheckpoint(
             output_weights_path,
             # save_weights_only=True,
-            save_best_only=True,
+            save_best_only=False,
             verbose=1,
         )
     # model_train.compile(Adam(lr=64e-5), loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
