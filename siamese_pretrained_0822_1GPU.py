@@ -36,6 +36,7 @@ import tensorflow as tf
 from datetime import datetime
 # from callback import MultiGPUModelCheckpoint
 from losses import focal_loss
+from build_model import build_model
 
 data_dir = '/home/room/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
@@ -266,6 +267,10 @@ def read_cropped_image(p, augment):
     x0, y0, x1, y1 = row['x0'], row['y0'], row['x1'], row['y1']
     dx = x1 - x0
     dy = y1 - y0
+    x0 = max(0, x0 - dx * crop_margin)
+    x1 = min(size_x, x1 + dx * crop_margin + 1)
+    y0 = max(0, y0 - dy * crop_margin)
+    y1 = min(size_y, y1 + dy * crop_margin + 1)
     # x0 -= dx * crop_margin
     # x1 += dx * crop_margin + 1
     # y0 -= dy * crop_margin
@@ -278,12 +283,8 @@ def read_cropped_image(p, augment):
     #     y0 = 0
     # if y1 > size_y:
     #     y1 = size_y
-    x0 = max(0, x0 - dx * crop_margin)
-    x1 = min(size_x, x1 + dx * crop_margin + 1)
-    y0 = max(0, y0 - dy * crop_margin)
-    y1 = min(size_y, y1 + dy * crop_margin + 1)
-    dx = x1 - x0
-    dy = y1 - y0
+    # dx = x1 - x0
+    # dy = y1 - y0
     # if dx > dy * anisotropy:
     #     dy = 0.5 * (dx / anisotropy - dy)
     #     y0 -= dy
@@ -337,99 +338,99 @@ def read_for_validation(p):
     """
     return read_cropped_image(p, False)
 
-def subblock(x, filter, **kwargs):
-    x = BatchNormalization()(x)
-    y = x
-    y = Conv2D(filter, (1, 1), activation='relu', **kwargs)(y)  # Reduce the number of features to 'filter'
-    y = BatchNormalization()(y)
-    y = Conv2D(filter, (3, 3), activation='relu', **kwargs)(y)  # Extend the feature field
-    y = BatchNormalization()(y)
-    y = Conv2D(K.int_shape(x)[-1], (1, 1), **kwargs)(y)  # no activation # Restore the number of original features
-    y = Add()([x, y])  # Add the bypass connection
-    y = Activation('relu')(y)
-    return y
-
-
-def build_model(lr, l2, activation='sigmoid'):
-    ##############
-    # BRANCH MODEL
-    ##############
-    regul = regularizers.l2(l2)
-    optim = Adam(lr=lr)
-    kwargs = {'padding': 'same', 'kernel_regularizer': regul}
-
-    inp = Input(shape=img_shape)  # 384x384x1
-    x = Conv2D(64, (9, 9), strides=2, activation='relu', **kwargs)(inp)  # 192x192x64
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 96x96x64
-    for _ in range(2):
-        x = BatchNormalization()(x)
-        x = Conv2D(64, (3, 3), activation='relu', **kwargs)(x)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 48x48x64
-    x = BatchNormalization()(x)
-    x = Conv2D(128, (1, 1), activation='relu', **kwargs)(x)  # 48x48x128
-    for _ in range(4):
-        x = subblock(x, 64, **kwargs)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 24x24x128
-    x = BatchNormalization()(x)
-    x = Conv2D(256, (1, 1), activation='relu', **kwargs)(x)  # 24x24x256
-    for _ in range(4):
-        x = subblock(x, 64, **kwargs)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 12x12x256
-    x = BatchNormalization()(x)
-    x = Conv2D(384, (1, 1), activation='relu', **kwargs)(x)  # 12x12x384
-    for _ in range(4):
-        x = subblock(x, 96, **kwargs)
-
-    x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 6x6x384
-    x = BatchNormalization()(x)
-    x = Conv2D(512, (1, 1), activation='relu', **kwargs)(x)  # 6x6x512
-    for _ in range(4):
-        x = subblock(x, 128, **kwargs)
-
-    x = GlobalMaxPooling2D()(x)  # 512
-    branch_model = Model(inp, x)
-
-    ############
-    # HEAD MODEL
-    ############
-    mid = 32
-    xa_inp = Input(shape=branch_model.output_shape[1:])
-    xb_inp = Input(shape=branch_model.output_shape[1:])
-    x1 = Lambda(lambda x: x[0] * x[1])([xa_inp, xb_inp])
-    x2 = Lambda(lambda x: x[0] + x[1])([xa_inp, xb_inp])
-    x3 = Lambda(lambda x: K.abs(x[0] - x[1]))([xa_inp, xb_inp])
-    x4 = Lambda(lambda x: K.square(x))(x3)
-    x = Concatenate()([x1, x2, x3, x4])    # ?x2048
-    x = Reshape((4, branch_model.output_shape[1], 1), name='reshape1')(x)    # ?x4x512x1
-
-    # Per feature NN with shared weight is implemented using CONV2D with appropriate stride.
-    x = Conv2D(mid, (4, 1), activation='relu', padding='valid')(x)      # ?x1x512xmid
-    x = Reshape((branch_model.output_shape[1], mid, 1))(x)              # ?x512xmidx1
-    x = Conv2D(1, (1, mid), activation='linear', padding='valid')(x)    # ?x512x1x1
-    x = Flatten(name='flatten')(x)                                      # ?x512
-
-    # Weighted sum implemented as a Dense layer.
-    x = Dense(1, use_bias=True, activation=activation, name='weighted-average')(x)      # ?x1
-    head_model = Model([xa_inp, xb_inp], x, name='head')
-
-    ########################
-    # SIAMESE NEURAL NETWORK
-    ########################
-    # Complete model is constructed by calling the branch model on each input image,
-    # and then the head model on the resulting 512-vectors.
-    img_a = Input(shape=img_shape)
-    img_b = Input(shape=img_shape)
-    xa = branch_model(img_a)
-    xb = branch_model(img_b)
-    x = head_model([xa, xb])
-    model = Model([img_a, img_b], x)
-    model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-    # model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
-    return model, branch_model, head_model
+# def subblock(x, filter, **kwargs):
+#     x = BatchNormalization()(x)
+#     y = x
+#     y = Conv2D(filter, (1, 1), activation='relu', **kwargs)(y)  # Reduce the number of features to 'filter'
+#     y = BatchNormalization()(y)
+#     y = Conv2D(filter, (3, 3), activation='relu', **kwargs)(y)  # Extend the feature field
+#     y = BatchNormalization()(y)
+#     y = Conv2D(K.int_shape(x)[-1], (1, 1), **kwargs)(y)  # no activation # Restore the number of original features
+#     y = Add()([x, y])  # Add the bypass connection
+#     y = Activation('relu')(y)
+#     return y
+#
+#
+# def build_model(lr, l2, activation='sigmoid'):
+#     ##############
+#     # BRANCH MODEL
+#     ##############
+#     regul = regularizers.l2(l2)
+#     optim = Adam(lr=lr)
+#     kwargs = {'padding': 'same', 'kernel_regularizer': regul}
+#
+#     inp = Input(shape=img_shape)  # 384x384x1
+#     x = Conv2D(64, (9, 9), strides=2, activation='relu', **kwargs)(inp)  # 192x192x64
+#
+#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 96x96x64
+#     for _ in range(2):
+#         x = BatchNormalization()(x)
+#         x = Conv2D(64, (3, 3), activation='relu', **kwargs)(x)
+#
+#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 48x48x64
+#     x = BatchNormalization()(x)
+#     x = Conv2D(128, (1, 1), activation='relu', **kwargs)(x)  # 48x48x128
+#     for _ in range(4):
+#         x = subblock(x, 64, **kwargs)
+#
+#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 24x24x128
+#     x = BatchNormalization()(x)
+#     x = Conv2D(256, (1, 1), activation='relu', **kwargs)(x)  # 24x24x256
+#     for _ in range(4):
+#         x = subblock(x, 64, **kwargs)
+#
+#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 12x12x256
+#     x = BatchNormalization()(x)
+#     x = Conv2D(384, (1, 1), activation='relu', **kwargs)(x)  # 12x12x384
+#     for _ in range(4):
+#         x = subblock(x, 96, **kwargs)
+#
+#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 6x6x384
+#     x = BatchNormalization()(x)
+#     x = Conv2D(512, (1, 1), activation='relu', **kwargs)(x)  # 6x6x512
+#     for _ in range(4):
+#         x = subblock(x, 128, **kwargs)
+#
+#     x = GlobalMaxPooling2D()(x)  # 512
+#     branch_model = Model(inp, x)
+#
+#     ############
+#     # HEAD MODEL
+#     ############
+#     mid = 32
+#     xa_inp = Input(shape=branch_model.output_shape[1:])
+#     xb_inp = Input(shape=branch_model.output_shape[1:])
+#     x1 = Lambda(lambda x: x[0] * x[1])([xa_inp, xb_inp])        # ?x512
+#     x2 = Lambda(lambda x: x[0] + x[1])([xa_inp, xb_inp])        # ?x512
+#     x3 = Lambda(lambda x: K.abs(x[0] - x[1]))([xa_inp, xb_inp]) # ?x512
+#     x4 = Lambda(lambda x: K.square(x))(x3)                      # ?x512
+#     x = Concatenate()([x1, x2, x3, x4])    # ?x2048
+#     x = Reshape((4, branch_model.output_shape[1], 1), name='reshape1')(x)    # ?x4x512x1
+#
+#     # Per feature NN with shared weight is implemented using CONV2D with appropriate stride.
+#     x = Conv2D(mid, (4, 1), activation='relu', padding='valid')(x)      # ?x1x512xmid
+#     x = Reshape((branch_model.output_shape[1], mid, 1))(x)              # ?x512xmidx1
+#     x = Conv2D(1, (1, mid), activation='linear', padding='valid')(x)    # ?x512x1x1
+#     x = Flatten(name='flatten')(x)                                      # ?x512
+#
+#     # Weighted sum implemented as a Dense layer.
+#     x = Dense(1, use_bias=True, activation=activation, name='weighted-average')(x)      # ?x1
+#     head_model = Model([xa_inp, xb_inp], x, name='head')
+#
+#     ########################
+#     # SIAMESE NEURAL NETWORK
+#     ########################
+#     # Complete model is constructed by calling the branch model on each input image,
+#     # and then the head model on the resulting 512-vectors.
+#     img_a = Input(shape=img_shape)
+#     img_b = Input(shape=img_shape)
+#     xa = branch_model(img_a)
+#     xb = branch_model(img_b)
+#     x = head_model([xa, xb])
+#     model = Model([img_a, img_b], x)
+#     # model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
+#     model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
+#     return model, branch_model, head_model
 
 def set_lr(model, lr):
     K.set_value(model.optimizer.lr, float(lr))
@@ -572,7 +573,7 @@ def prepare_submission(threshold, filename):
     return vtop, vhigh, pos
 
 set_sess_cfg()
-output_dir = 'experiments/no_anisotropy'
+output_dir = 'experiments/binary_crossentropy_no_anisotropy'
 models_dir = os.path.join(output_dir, 'models')
 if not os.path.isdir(models_dir):
     os.makedirs(models_dir)
@@ -644,13 +645,14 @@ p2bb = pd.read_csv(BB_DF).set_index("Image")
 old_stderr = sys.stderr
 sys.stderr = open('/dev/null' if platform.system() != 'Windows' else 'nul', 'w')
 sys.stderr = old_stderr
-img_shape = (384, 384, 1)  # The image shape used by the model
+# img_shape = (384, 384, 1)  # The image shape used by the model
+img_shape = (512, 512, 1)
 anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
 # p = list(tagged.keys())[312]
 
-model, branch_model, head_model = build_model(64e-5, 0)
+model, branch_model, head_model = build_model(lr=64e-5, l2=0, img_shape=img_shape)
 model.summary()
 h2ws = {}
 new_whale = 'new_whale'
@@ -711,6 +713,8 @@ if isfile(MPIOTTE_STANDARD_MODEL):
 # epoch -> 10
 make_steps(10, 1000)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch10.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch10.h5'))
+
 # epoch -> 60
 ampl = 100.0
 for _ in range(10):
@@ -718,40 +722,56 @@ for _ in range(10):
     make_steps(5, ampl)
     ampl = max(1.0, 100 ** -0.1 * ampl)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch60.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch60.h5'))
+
 # epoch -> 150
 for _ in range(18): make_steps(5, 1.0)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch150.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch150.h5'))
+
 # epoch -> 200
 set_lr(model, 16e-5)
 for _ in range(10): make_steps(5, 0.5)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch200.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch200.h5'))
+
 # epoch -> 240
 set_lr(model, 4e-5)
 for _ in range(8): make_steps(5, 0.25)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch240.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch240.h5'))
+
 # epoch -> 250
 set_lr(model, 1e-5)
 for _ in range(2): make_steps(5, 0.25)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch250.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch250.h5'))
 
 weights = model.get_weights()
-model, branch_model, head_model = build_model(64e-5, 0.0002)
+model, branch_model, head_model = build_model(lr=64e-5, l2=0.0002, img_shape=img_shape)
 model.set_weights(weights)
 # epoch -> 300
 for _ in range(10): make_steps(5, 1.0)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch300.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch300.h5'))
+
 # epoch -> 350
 set_lr(model, 16e-5)
 for _ in range(10): make_steps(5, 0.5)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch350.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch350.h5'))
+
 # epoch -> 390
 set_lr(model, 4e-5)
 for _ in range(8): make_steps(5, 0.25)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch390.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch390.h5'))
+
 # epoch -> 400
 set_lr(model, 1e-5)
 for _ in range(2): make_steps(5, 0.25)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch400.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch400.h5'))
 
 # Find elements from training sets not 'new_whale'
 tic = time.time()

@@ -36,7 +36,7 @@ from callback import MultiGPUModelCheckpoint
 from losses import focal_loss
 from build_model import build_model
 
-data_dir = '/home/ys1/dataset/Humpback_Whale/'
+data_dir = '/home/room/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
 SUB_Df = os.path.join(data_dir, 'sample_submission.csv')
 TRAIN = os.path.join(data_dir, 'train/')
@@ -44,8 +44,8 @@ TEST = os.path.join(data_dir, 'test/')
 P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes.csv')
-# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
-MPIOTTE_STANDARD_MODEL = 'models/model_finetuning.h5'
+MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-bootstrap.model')
+# MPIOTTE_STANDARD_MODEL = 'models/model_finetuning_epoch10.h5'
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
@@ -185,16 +185,16 @@ def read_cropped_image(p, augment):
     x1 = min(size_x, x1 + dx * crop_margin + 1)
     y0 = max(0, y0 - dy * crop_margin)
     y1 = min(size_y, y1 + dy * crop_margin + 1)
-    dx = x1 - x0
-    dy = y1 - y0
-    if dx > dy * anisotropy:
-        dy = 0.5 * (dx / anisotropy - dy)
-        y0 -= dy
-        y1 += dy
-    else:
-        dx = 0.5 * (dy * anisotropy - dx)
-        x0 -= dx
-        x1 += dx
+    # dx = x1 - x0
+    # dy = y1 - y0
+    # if dx > dy * anisotropy:
+    #     dy = 0.5 * (dx / anisotropy - dy)
+    #     y0 -= dy
+    #     y1 += dy
+    # else:
+    #     dx = 0.5 * (dy * anisotropy - dx)
+    #     x0 -= dx
+    #     x1 += dx
 
     # Generate the transformation matrix
     trans = np.array([[1, 0, -0.5 * img_shape[0]], [0, 1, -0.5 * img_shape[1]], [0, 0, 1]])
@@ -392,8 +392,9 @@ histories = []
 steps = 0
 
 if isfile(MPIOTTE_STANDARD_MODEL):
-    tmp = keras.models.load_model(MPIOTTE_STANDARD_MODEL)
-    model.set_weights(tmp.get_weights())
+    # tmp = keras.models.load_model(p)
+    # model.set_weights(tmp.get_weights())
+    model.load_weights(MPIOTTE_STANDARD_MODEL)
 else:
     print('no model file!!!')
 
@@ -415,6 +416,8 @@ score = score_reshape(score, fknown, fsubmit)
 
 # Generate the subsmission file.
 time_now = datetime.now()
+if not os.path.exists('submit'):
+    os.mkdir('submit')
 submission_file = f"submit/submission_{time_now}.csv"
 prepare_submission(0.99, submission_file)
 toc = time.time()
