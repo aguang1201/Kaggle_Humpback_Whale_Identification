@@ -266,6 +266,10 @@ def read_cropped_image(p, augment):
     x0, y0, x1, y1 = row['x0'], row['y0'], row['x1'], row['y1']
     dx = x1 - x0
     dy = y1 - y0
+    x0 = max(0, x0 - dx * crop_margin)
+    x1 = min(size_x, x1 + dx * crop_margin + 1)
+    y0 = max(0, y0 - dy * crop_margin)
+    y1 = min(size_y, y1 + dy * crop_margin + 1)
     # x0 -= dx * crop_margin
     # x1 += dx * crop_margin + 1
     # y0 -= dy * crop_margin
@@ -278,20 +282,16 @@ def read_cropped_image(p, augment):
     #     y0 = 0
     # if y1 > size_y:
     #     y1 = size_y
-    x0 = max(0, x0 - dx * crop_margin)
-    x1 = min(size_x, x1 + dx * crop_margin + 1)
-    y0 = max(0, y0 - dy * crop_margin)
-    y1 = min(size_y, y1 + dy * crop_margin + 1)
-    dx = x1 - x0
-    dy = y1 - y0
-    if dx > dy * anisotropy:
-        dy = 0.5 * (dx / anisotropy - dy)
-        y0 -= dy
-        y1 += dy
-    else:
-        dx = 0.5 * (dy * anisotropy - dx)
-        x0 -= dx
-        x1 += dx
+    # dx = x1 - x0
+    # dy = y1 - y0
+    # if dx > dy * anisotropy:
+    #     dy = 0.5 * (dx / anisotropy - dy)
+    #     y0 -= dy
+    #     y1 += dy
+    # else:
+    #     dx = 0.5 * (dy * anisotropy - dx)
+    #     x0 -= dx
+    #     x1 += dx
 
     # Generate the transformation matrix
     trans = np.array([[1, 0, -0.5 * img_shape[0]], [0, 1, -0.5 * img_shape[1]], [0, 0, 1]])
@@ -588,7 +588,7 @@ def prepare_submission(threshold, filename):
     return vtop, vhigh, pos
 
 set_sess_cfg()
-output_dir = 'experiments/binary_crossentropy'
+output_dir = 'experiments/binary_crossentropy_no_anisotropy'
 models_dir = os.path.join(output_dir, 'models')
 if not os.path.isdir(models_dir):
     os.makedirs(models_dir)
