@@ -284,14 +284,14 @@ def read_cropped_image(p, augment):
     y1 = min(size_y, y1 + dy * crop_margin + 1)
     dx = x1 - x0
     dy = y1 - y0
-    if dx > dy * anisotropy:
-        dy = 0.5 * (dx / anisotropy - dy)
-        y0 -= dy
-        y1 += dy
-    else:
-        dx = 0.5 * (dy * anisotropy - dx)
-        x0 -= dx
-        x1 += dx
+    # if dx > dy * anisotropy:
+    #     dy = 0.5 * (dx / anisotropy - dy)
+    #     y0 -= dy
+    #     y1 += dy
+    # else:
+    #     dx = 0.5 * (dy * anisotropy - dx)
+    #     x0 -= dx
+    #     x1 += dx
 
     # Generate the transformation matrix
     trans = np.array([[1, 0, -0.5 * img_shape[0]], [0, 1, -0.5 * img_shape[1]], [0, 0, 1]])
@@ -500,20 +500,19 @@ def make_steps(step, ampl):
     # Compute the match score for each picture pair
     features, score = compute_score()
 
-    time_now = datetime.now()
-    csv_logger = CSVLogger(f'history/trained_{str(time_now)}.csv')
+    csv_logger = CSVLogger(f'history/trained_{steps + step}.csv')
 
-    output_weights_path = 'models/model_finetuning.h5'
+    output_weights_path = os.path.join(models_dir, 'model_finetuning.h5')
     checkpoint = ModelCheckpoint(
         output_weights_path,
         # save_weights_only=True,
-        save_best_only=True,
+        save_best_only=False,
         verbose=1,
     )
     callbacks = [
         csv_logger,
         checkpoint,
-        TensorBoard(log_dir="logs", batch_size=batch_size),
+        TensorBoard(log_dir=os.path.join(output_dir, "logs"), batch_size=batch_size),
     ]
 
     # Train the model_train for 'step' epochs
@@ -573,6 +572,14 @@ def prepare_submission(threshold, filename):
     return vtop, vhigh, pos
 
 set_sess_cfg()
+output_dir = 'experiments/no_anisotropy'
+models_dir = os.path.join(output_dir, 'models')
+if not os.path.isdir(models_dir):
+    os.makedirs(models_dir)
+
+history_dir = os.path.join(output_dir, 'history')
+if not os.path.exists(history_dir):
+    os.mkdir(history_dir)
 
 if isfile(P2SIZE):
     print("P2SIZE exists.")
@@ -703,47 +710,48 @@ if isfile(MPIOTTE_STANDARD_MODEL):
 # else:
 # epoch -> 10
 make_steps(10, 1000)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch10.h5'))
 # epoch -> 60
 ampl = 100.0
 for _ in range(10):
     print('noise ampl.  = ', ampl)
     make_steps(5, ampl)
     ampl = max(1.0, 100 ** -0.1 * ampl)
-model.save(f'models/model_finetuning_epoch60.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch60.h5'))
 # epoch -> 150
 for _ in range(18): make_steps(5, 1.0)
-model.save(f'models/model_finetuning_epoch150.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch150.h5'))
 # epoch -> 200
 set_lr(model, 16e-5)
 for _ in range(10): make_steps(5, 0.5)
-model.save(f'models/model_finetuning_epoch200.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch200.h5'))
 # epoch -> 240
 set_lr(model, 4e-5)
 for _ in range(8): make_steps(5, 0.25)
-model.save(f'models/model_finetuning_epoch240.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch240.h5'))
 # epoch -> 250
 set_lr(model, 1e-5)
 for _ in range(2): make_steps(5, 0.25)
-model.save(f'models/model_finetuning_epoch250.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch250.h5'))
 
 weights = model.get_weights()
 model, branch_model, head_model = build_model(64e-5, 0.0002)
 model.set_weights(weights)
 # epoch -> 300
 for _ in range(10): make_steps(5, 1.0)
-model.save(f'models/model_finetuning_epoch300.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch300.h5'))
 # epoch -> 350
 set_lr(model, 16e-5)
 for _ in range(10): make_steps(5, 0.5)
-model.save(f'models/model_finetuning_epoch350.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch350.h5'))
 # epoch -> 390
 set_lr(model, 4e-5)
 for _ in range(8): make_steps(5, 0.25)
-model.save(f'models/model_finetuning_epoch390.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch390.h5'))
 # epoch -> 400
 set_lr(model, 1e-5)
 for _ in range(2): make_steps(5, 0.25)
-model.save(f'models/model_finetuning_epoch400.h5')
+model.save(os.path.join(models_dir, 'model_finetuning_epoch400.h5'))
 
 # Find elements from training sets not 'new_whale'
 tic = time.time()

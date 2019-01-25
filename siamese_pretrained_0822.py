@@ -50,6 +50,8 @@ tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
 batch_size = 108
+workers = 12
+max_queue_size = 12
 
 class TrainingData(Sequence):
     def __init__(self, score, steps=1000, batch_size=32):
@@ -464,9 +466,9 @@ def compute_score(verbose=1):
     """
     Compute the score matrix by scoring every pictures from the training set against every other picture O(n^2).
     """
-    features = branch_model.predict_generator(FeatureGen(train, verbose=verbose), max_queue_size=12, workers=12,
+    features = branch_model.predict_generator(FeatureGen(train, verbose=verbose), max_queue_size=max_queue_size, workers=workers,
                                               verbose=0)
-    score = head_model.predict_generator(ScoreGen(features, verbose=verbose), max_queue_size=12, workers=12, verbose=0)
+    score = head_model.predict_generator(ScoreGen(features, verbose=verbose), max_queue_size=max_queue_size, workers=workers, verbose=0)
     score = score_reshape(score, features)
     return features, score
 
@@ -498,13 +500,10 @@ def make_steps(step, ampl):
     # Compute the match score for each picture pair
     features, score = compute_score()
 
-    # time_now = datetime.now()
-    history_dir = os.path.join(output_dir, 'history')
-    csv_logger = CSVLogger(os.path.join(history_dir, f'trained_binarycrossentropy_{steps + step}.csv'))
-    if not os.path.exists(history_dir):
-        os.mkdir(history_dir)
+    csv_logger = CSVLogger(os.path.join(history_dir, f'trained_{steps + step}.csv'))
+
     print("** check multiple gpu availability **")
-    output_weights_path = os.path.join(output_dir, 'models/model_finetuning.h5')
+    output_weights_path = os.path.join(models_dir, 'model_finetuning.h5')
     gpus = len(os.getenv("CUDA_VISIBLE_DEVICES", "0,1").split(","))
     if gpus > 1:
         print(f"** multi_gpu_model is used! gpus={gpus} **")
@@ -537,8 +536,8 @@ def make_steps(step, ampl):
         TrainingData(score + ampl * np.random.random_sample(size=score.shape), steps=step, batch_size=batch_size),
         initial_epoch=steps,
         epochs=steps + step,
-        max_queue_size=12,
-        workers=12,
+        max_queue_size=max_queue_size,
+        workers=workers,
         verbose=1,
         callbacks=callbacks,).history
     steps += step
@@ -593,6 +592,10 @@ output_dir = 'experiments/binary_crossentropy'
 models_dir = os.path.join(output_dir, 'models')
 if not os.path.isdir(models_dir):
     os.makedirs(models_dir)
+
+history_dir = os.path.join(output_dir, 'history')
+if not os.path.exists(history_dir):
+    os.mkdir(history_dir)
 
 if isfile(P2SIZE):
     print("P2SIZE exists.")
@@ -780,9 +783,9 @@ known = sorted(list(h2ws.keys()))
 # for i, h in enumerate(known): h2i[h] = i
 
 # Evaluate the model.
-fknown = branch_model.predict_generator(FeatureGen(known), max_queue_size=20, workers=12, verbose=0)
-fsubmit = branch_model.predict_generator(FeatureGen(submit), max_queue_size=20, workers=12, verbose=0)
-score = head_model.predict_generator(ScoreGen(fknown, fsubmit), max_queue_size=20, workers=12, verbose=0)
+fknown = branch_model.predict_generator(FeatureGen(known), max_queue_size=max_queue_size, workers=workers, verbose=0)
+fsubmit = branch_model.predict_generator(FeatureGen(submit), max_queue_size=max_queue_size, workers=workers, verbose=0)
+score = head_model.predict_generator(ScoreGen(fknown, fsubmit), max_queue_size=max_queue_size, workers=workers, verbose=0)
 score = score_reshape(score, fknown, fsubmit)
 
 # Generate the subsmission file.
