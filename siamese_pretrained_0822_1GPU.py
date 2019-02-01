@@ -574,7 +574,7 @@ def prepare_submission(threshold, filename):
     return vtop, vhigh, pos
 
 set_sess_cfg()
-output_dir = 'experiments/binary_crossentropy_no_anisotropy_imgsize512'
+output_dir = 'experiments/focal_loss_no_anisotropy_imgsize384'
 models_dir = os.path.join(output_dir, 'models')
 if not os.path.isdir(models_dir):
     os.makedirs(models_dir)
@@ -646,9 +646,9 @@ p2bb = pd.read_csv(BB_DF).set_index("Image")
 old_stderr = sys.stderr
 sys.stderr = open('/dev/null' if platform.system() != 'Windows' else 'nul', 'w')
 sys.stderr = old_stderr
-# img_shape = (384, 384, 1)  # The image shape used by the model
-img_shape = (512, 512, 1)
-anisotropy = 2.15  # The horizontal compression ratio
+img_shape = (384, 384, 1)  # The image shape used by the model
+# img_shape = (512, 512, 1)
+# anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
 # p = list(tagged.keys())[312]
@@ -748,31 +748,97 @@ for _ in range(2): make_steps(5, 0.25)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch250.h5'))
 model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch250.h5'))
 
-weights = model.get_weights()
-model, branch_model, head_model = build_model(lr=64e-5, l2=0.0002, img_shape=img_shape)
-model.set_weights(weights)
 # epoch -> 300
-for _ in range(10): make_steps(5, 1.0)
+set_lr(model, 8e-6)
+for _ in range(10): make_steps(5, 0.2)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch300.h5'))
 model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch300.h5'))
 
 # epoch -> 350
-set_lr(model, 16e-5)
-for _ in range(10): make_steps(5, 0.5)
+set_lr(model, 4e-6)
+for _ in range(10): make_steps(5, 0.15)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch350.h5'))
 model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch350.h5'))
 
-# epoch -> 390
-set_lr(model, 4e-5)
-for _ in range(8): make_steps(5, 0.25)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch390.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch390.h5'))
-
 # epoch -> 400
-set_lr(model, 1e-5)
-for _ in range(2): make_steps(5, 0.25)
+set_lr(model, 2e-6)
+for _ in range(10): make_steps(5, 0.1)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch400.h5'))
 model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch400.h5'))
+
+# epoch -> 450
+set_lr(model, 1e-6)
+for _ in range(10): make_steps(5, 0.05)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch450.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch450.h5'))
+
+# epoch -> 500
+set_lr(model, 8e-7)
+for _ in range(10): make_steps(5, 0.02)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch500.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch500.h5'))
+
+# epoch -> 550
+set_lr(model, 4e-7)
+for _ in range(10): make_steps(5, 0)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch550.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch550.h5'))
+
+weights = model.get_weights()
+model, branch_model, head_model = build_model(lr=1e-5, l2=0.0002, img_shape=img_shape)
+model.set_weights(weights)
+# epoch -> 600
+for _ in range(10): make_steps(5, 1.0)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch600.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch600.h5'))
+
+# epoch -> 650
+set_lr(model, 8e-6)
+for _ in range(10): make_steps(5, 0.5)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch650.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch650.h5'))
+
+# epoch -> 690
+set_lr(model, 6e-6)
+for _ in range(8): make_steps(5, 0.25)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch690.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch690.h5'))
+
+# epoch -> 700
+set_lr(model, 4e-6)
+for _ in range(2): make_steps(5, 0.25)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch700.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch700.h5'))
+
+# epoch -> 750
+set_lr(model, 2e-6)
+for _ in range(10): make_steps(5, 0.2)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch750.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch750.h5'))
+
+# epoch -> 800
+set_lr(model, 1e-6)
+for _ in range(10): make_steps(5, 0.15)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch800.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch800.h5'))
+
+# epoch -> 850
+set_lr(model, 8e-7)
+for _ in range(10): make_steps(5, 0.1)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch850.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch850.h5'))
+
+# epoch -> 900
+set_lr(model, 6e-7)
+for _ in range(10): make_steps(5, 0.05)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch900.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch900.h5'))
+
+# epoch -> 950
+set_lr(model, 4e-7)
+for _ in range(10): make_steps(5, 0)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch950.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch950.h5'))
 
 # Find elements from training sets not 'new_whale'
 tic = time.time()
