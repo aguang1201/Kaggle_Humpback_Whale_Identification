@@ -5,6 +5,7 @@ from keras.layers import Activation, Add, BatchNormalization, Concatenate, Conv2
     Lambda, MaxPooling2D, Reshape
 from keras.models import Model
 from keras.optimizers import Adam
+from losses import focal_loss
 
 
 def subblock(x, filter, **kwargs):

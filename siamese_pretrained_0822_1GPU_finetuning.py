@@ -46,7 +46,8 @@ TEST = os.path.join(data_dir, 'test/')
 P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes.csv')
-MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
+# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
+MPIOTTE_STANDARD_MODEL = os.path.join('experiments/binary_crossentropy_no_anisotropy_imgsize512/models/weights_finetuning_epoch250.h5')
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
@@ -272,28 +273,6 @@ def read_cropped_image(p, augment):
     x1 = min(size_x, x1 + dx * crop_margin + 1)
     y0 = max(0, y0 - dy * crop_margin)
     y1 = min(size_y, y1 + dy * crop_margin + 1)
-    # x0 -= dx * crop_margin
-    # x1 += dx * crop_margin + 1
-    # y0 -= dy * crop_margin
-    # y1 += dy * crop_margin + 1
-    # if x0 < 0:
-    #     x0 = 0
-    # if x1 > size_x:
-    #     x1 = size_x
-    # if y0 < 0:
-    #     y0 = 0
-    # if y1 > size_y:
-    #     y1 = size_y
-    # dx = x1 - x0
-    # dy = y1 - y0
-    # if dx > dy * anisotropy:
-    #     dy = 0.5 * (dx / anisotropy - dy)
-    #     y0 -= dy
-    #     y1 += dy
-    # else:
-    #     dx = 0.5 * (dy * anisotropy - dx)
-    #     x0 -= dx
-    #     x1 += dx
 
     # Generate the transformation matrix
     trans = np.array([[1, 0, -0.5 * img_shape[0]], [0, 1, -0.5 * img_shape[1]], [0, 0, 1]])
@@ -338,100 +317,6 @@ def read_for_validation(p):
     Read and preprocess an image without data augmentation (use for testing).
     """
     return read_cropped_image(p, False)
-
-# def subblock(x, filter, **kwargs):
-#     x = BatchNormalization()(x)
-#     y = x
-#     y = Conv2D(filter, (1, 1), activation='relu', **kwargs)(y)  # Reduce the number of features to 'filter'
-#     y = BatchNormalization()(y)
-#     y = Conv2D(filter, (3, 3), activation='relu', **kwargs)(y)  # Extend the feature field
-#     y = BatchNormalization()(y)
-#     y = Conv2D(K.int_shape(x)[-1], (1, 1), **kwargs)(y)  # no activation # Restore the number of original features
-#     y = Add()([x, y])  # Add the bypass connection
-#     y = Activation('relu')(y)
-#     return y
-#
-#
-# def build_model(lr, l2, activation='sigmoid'):
-#     ##############
-#     # BRANCH MODEL
-#     ##############
-#     regul = regularizers.l2(l2)
-#     optim = Adam(lr=lr)
-#     kwargs = {'padding': 'same', 'kernel_regularizer': regul}
-#
-#     inp = Input(shape=img_shape)  # 384x384x1
-#     x = Conv2D(64, (9, 9), strides=2, activation='relu', **kwargs)(inp)  # 192x192x64
-#
-#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 96x96x64
-#     for _ in range(2):
-#         x = BatchNormalization()(x)
-#         x = Conv2D(64, (3, 3), activation='relu', **kwargs)(x)
-#
-#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 48x48x64
-#     x = BatchNormalization()(x)
-#     x = Conv2D(128, (1, 1), activation='relu', **kwargs)(x)  # 48x48x128
-#     for _ in range(4):
-#         x = subblock(x, 64, **kwargs)
-#
-#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 24x24x128
-#     x = BatchNormalization()(x)
-#     x = Conv2D(256, (1, 1), activation='relu', **kwargs)(x)  # 24x24x256
-#     for _ in range(4):
-#         x = subblock(x, 64, **kwargs)
-#
-#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 12x12x256
-#     x = BatchNormalization()(x)
-#     x = Conv2D(384, (1, 1), activation='relu', **kwargs)(x)  # 12x12x384
-#     for _ in range(4):
-#         x = subblock(x, 96, **kwargs)
-#
-#     x = MaxPooling2D((2, 2), strides=(2, 2))(x)  # 6x6x384
-#     x = BatchNormalization()(x)
-#     x = Conv2D(512, (1, 1), activation='relu', **kwargs)(x)  # 6x6x512
-#     for _ in range(4):
-#         x = subblock(x, 128, **kwargs)
-#
-#     x = GlobalMaxPooling2D()(x)  # 512
-#     branch_model = Model(inp, x)
-#
-#     ############
-#     # HEAD MODEL
-#     ############
-#     mid = 32
-#     xa_inp = Input(shape=branch_model.output_shape[1:])
-#     xb_inp = Input(shape=branch_model.output_shape[1:])
-#     x1 = Lambda(lambda x: x[0] * x[1])([xa_inp, xb_inp])        # ?x512
-#     x2 = Lambda(lambda x: x[0] + x[1])([xa_inp, xb_inp])        # ?x512
-#     x3 = Lambda(lambda x: K.abs(x[0] - x[1]))([xa_inp, xb_inp]) # ?x512
-#     x4 = Lambda(lambda x: K.square(x))(x3)                      # ?x512
-#     x = Concatenate()([x1, x2, x3, x4])    # ?x2048
-#     x = Reshape((4, branch_model.output_shape[1], 1), name='reshape1')(x)    # ?x4x512x1
-#
-#     # Per feature NN with shared weight is implemented using CONV2D with appropriate stride.
-#     x = Conv2D(mid, (4, 1), activation='relu', padding='valid')(x)      # ?x1x512xmid
-#     x = Reshape((branch_model.output_shape[1], mid, 1))(x)              # ?x512xmidx1
-#     x = Conv2D(1, (1, mid), activation='linear', padding='valid')(x)    # ?x512x1x1
-#     x = Flatten(name='flatten')(x)                                      # ?x512
-#
-#     # Weighted sum implemented as a Dense layer.
-#     x = Dense(1, use_bias=True, activation=activation, name='weighted-average')(x)      # ?x1
-#     head_model = Model([xa_inp, xb_inp], x, name='head')
-#
-#     ########################
-#     # SIAMESE NEURAL NETWORK
-#     ########################
-#     # Complete model is constructed by calling the branch model on each input image,
-#     # and then the head model on the resulting 512-vectors.
-#     img_a = Input(shape=img_shape)
-#     img_b = Input(shape=img_shape)
-#     xa = branch_model(img_a)
-#     xb = branch_model(img_b)
-#     x = head_model([xa, xb])
-#     model = Model([img_a, img_b], x)
-#     # model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-#     model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
-#     return model, branch_model, head_model
 
 def set_lr(model, lr):
     K.set_value(model.optimizer.lr, float(lr))
@@ -574,7 +459,7 @@ def prepare_submission(threshold, filename):
     return vtop, vhigh, pos
 
 set_sess_cfg()
-output_dir = 'experiments/binary_crossentropy_no_anisotropy_imgsize512'
+output_dir = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_finetuning'
 models_dir = os.path.join(output_dir, 'models')
 if not os.path.isdir(models_dir):
     os.makedirs(models_dir)
@@ -710,70 +595,98 @@ steps = 0
 if isfile(MPIOTTE_STANDARD_MODEL):
     tmp = keras.models.load_model(MPIOTTE_STANDARD_MODEL)
     model.set_weights(tmp.get_weights())
-# else:
-# epoch -> 10
-make_steps(10, 1000)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch10.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch10.h5'))
 
-# epoch -> 60
-ampl = 100.0
-for _ in range(10):
-    print('noise ampl.  = ', ampl)
-    make_steps(5, ampl)
-    ampl = max(1.0, 100 ** -0.1 * ampl)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch60.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch60.h5'))
-
-# epoch -> 150
-for _ in range(18): make_steps(5, 1.0)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch150.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch150.h5'))
-
-# epoch -> 200
-set_lr(model, 16e-5)
-for _ in range(10): make_steps(5, 0.5)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch200.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch200.h5'))
-
-# epoch -> 240
-set_lr(model, 4e-5)
-for _ in range(8): make_steps(5, 0.25)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch240.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch240.h5'))
-
-# epoch -> 250
-set_lr(model, 1e-5)
-for _ in range(2): make_steps(5, 0.25)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch250.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch250.h5'))
-
-weights = model.get_weights()
-model, branch_model, head_model = build_model(lr=64e-5, l2=0.0002, img_shape=img_shape)
-model.set_weights(weights)
 # epoch -> 300
-for _ in range(10): make_steps(5, 1.0)
+set_lr(model, 1e-5)
+for _ in range(10): make_steps(5, 0.25)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch300.h5'))
 model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch300.h5'))
 
 # epoch -> 350
-set_lr(model, 16e-5)
-for _ in range(10): make_steps(5, 0.5)
+set_lr(model, 8e-6)
+for _ in range(10): make_steps(5, 0.2)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch350.h5'))
 model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch350.h5'))
 
-# epoch -> 390
-set_lr(model, 4e-5)
-for _ in range(8): make_steps(5, 0.25)
-model.save(os.path.join(models_dir, 'model_finetuning_epoch390.h5'))
-model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch390.h5'))
-
 # epoch -> 400
-set_lr(model, 1e-5)
-for _ in range(2): make_steps(5, 0.25)
+set_lr(model, 4e-6)
+for _ in range(10): make_steps(5, 0.15)
 model.save(os.path.join(models_dir, 'model_finetuning_epoch400.h5'))
 model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch400.h5'))
 
+# epoch -> 450
+set_lr(model, 2e-6)
+for _ in range(10): make_steps(5, 0.1)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch450.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch450.h5'))
+
+# epoch -> 500
+set_lr(model, 1e-6)
+for _ in range(10): make_steps(5, 0.05)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch500.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch500.h5'))
+
+# epoch -> 550
+set_lr(model, 8e-7)
+for _ in range(10): make_steps(5, 0.02)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch550.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch550.h5'))
+
+# epoch -> 600
+set_lr(model, 4e-7)
+for _ in range(10): make_steps(5, 0)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch600.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch600.h5'))
+
+weights = model.get_weights()
+model, branch_model, head_model = build_model(lr=1e-5, l2=0.0002, img_shape=img_shape)
+model.set_weights(weights)
+# epoch -> 650
+for _ in range(10): make_steps(5, 1.0)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch650.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch650.h5'))
+
+# epoch -> 700
+set_lr(model, 8e-6)
+for _ in range(10): make_steps(5, 0.5)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch700.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch700.h5'))
+
+# epoch -> 750
+set_lr(model, 4e-6)
+for _ in range(10): make_steps(5, 0.25)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch750.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch750.h5'))
+
+# epoch -> 800
+set_lr(model, 1e-6)
+for _ in range(10): make_steps(5, 0.2)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch800.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch800.h5'))
+
+# epoch -> 850
+set_lr(model, 8e-7)
+for _ in range(10): make_steps(5, 0.15)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch850.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch850.h5'))
+
+# epoch -> 900
+set_lr(model, 4e-7)
+for _ in range(10): make_steps(5, 0.1)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch900.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch900.h5'))
+
+# epoch -> 950
+set_lr(model, 2e-7)
+for _ in range(10): make_steps(5, 0.05)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch950.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch950.h5'))
+
+# epoch -> 1000
+set_lr(model, 1e-7)
+for _ in range(10): make_steps(5, 0)
+model.save(os.path.join(models_dir, 'model_finetuning_epoch1000.h5'))
+model.save_weights(os.path.join(models_dir, 'weights_finetuning_epoch1000.h5'))
 # Find elements from training sets not 'new_whale'
 tic = time.time()
 h2ws = {}
