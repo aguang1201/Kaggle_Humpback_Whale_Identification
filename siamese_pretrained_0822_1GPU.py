@@ -11,7 +11,6 @@ from math import sqrt
 # Determine the size of each image
 from os.path import isfile
 from keras.callbacks import ModelCheckpoint, TensorBoard, CSVLogger
-# from keras.utils import multi_gpu_model
 import keras
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,7 +37,7 @@ from datetime import datetime
 from losses import focal_loss
 from build_model import build_model
 
-data_dir = '/home/room/dataset/Humpback_Whale/'
+data_dir = '/home/ys1/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
 SUB_Df = os.path.join(data_dir, 'sample_submission.csv')
 TRAIN = os.path.join(data_dir, 'train/')
@@ -50,8 +49,8 @@ MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
-batch_size = 30             #image_size=512
-# batch_size = 56           #image_size=384
+# batch_size = 30             #image_size=512
+batch_size = 56           #image_size=384
 workers = 10
 max_queue_size = 10
 
@@ -573,6 +572,8 @@ def prepare_submission(threshold, filename):
             f.write(p + ',' + ' '.join(t[:5]) + '\n')
     return vtop, vhigh, pos
 
+
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 set_sess_cfg()
 output_dir = 'experiments/focal_loss_no_anisotropy_imgsize384'
 models_dir = os.path.join(output_dir, 'models')
@@ -652,7 +653,7 @@ img_shape = (384, 384, 1)  # The image shape used by the model
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
 # p = list(tagged.keys())[312]
-
+print(f'img_shape is : {img_shape}')
 model, branch_model, head_model = build_model(lr=64e-5, l2=0, img_shape=img_shape)
 model.summary()
 h2ws = {}
