@@ -45,7 +45,7 @@ P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes.csv')
 # MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
-MPIOTTE_STANDARD_MODEL = 'models/model_finetuning.h5'
+MPIOTTE_STANDARD_MODEL = 'experiments/binary_crossentropy_no_anisotropy_imgsize512/models/model_finetuning.h5'
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
@@ -185,16 +185,16 @@ def read_cropped_image(p, augment):
     x1 = min(size_x, x1 + dx * crop_margin + 1)
     y0 = max(0, y0 - dy * crop_margin)
     y1 = min(size_y, y1 + dy * crop_margin + 1)
-    dx = x1 - x0
-    dy = y1 - y0
-    if dx > dy * anisotropy:
-        dy = 0.5 * (dx / anisotropy - dy)
-        y0 -= dy
-        y1 += dy
-    else:
-        dx = 0.5 * (dy * anisotropy - dx)
-        x0 -= dx
-        x1 += dx
+    # dx = x1 - x0
+    # dy = y1 - y0
+    # if dx > dy * anisotropy:
+    #     dy = 0.5 * (dx / anisotropy - dy)
+    #     y0 -= dy
+    #     y1 += dy
+    # else:
+    #     dx = 0.5 * (dy * anisotropy - dx)
+    #     x0 -= dx
+    #     x1 += dx
 
     # Generate the transformation matrix
     trans = np.array([[1, 0, -0.5 * img_shape[0]], [0, 1, -0.5 * img_shape[1]], [0, 0, 1]])
@@ -358,7 +358,8 @@ p2bb = pd.read_csv(BB_DF).set_index("Image")
 old_stderr = sys.stderr
 sys.stderr = open('/dev/null' if platform.system() != 'Windows' else 'nul', 'w')
 sys.stderr = old_stderr
-img_shape = (384, 384, 1)  # The image shape used by the model
+# img_shape = (384, 384, 1)  # The image shape used by the model
+img_shape = (512, 512, 1)
 anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
@@ -408,8 +409,11 @@ for p, w in tagged.items():
 known = sorted(list(h2ws.keys()))
 
 # Evaluate the model.
+print('predict fknown start')
 fknown = branch_model.predict_generator(FeatureGen(known), max_queue_size=20, workers=12, verbose=0)
+print('predict fsubmit start')
 fsubmit = branch_model.predict_generator(FeatureGen(submit), max_queue_size=20, workers=12, verbose=0)
+print('predict score start')
 score = head_model.predict_generator(ScoreGen(fknown, fsubmit), max_queue_size=20, workers=12, verbose=0)
 score = score_reshape(score, fknown, fsubmit)
 
