@@ -50,9 +50,9 @@ tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
 # batch_size = 30             #image_size=512
-batch_size = 56           #image_size=384
-workers = 10
-max_queue_size = 10
+batch_size = 48          #image_size=384
+workers = 8
+max_queue_size = 8
 
 class TrainingData(Sequence):
     def __init__(self, score, steps=1000, batch_size=32):
