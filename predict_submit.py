@@ -36,7 +36,7 @@ from callback import MultiGPUModelCheckpoint
 from losses import focal_loss
 from build_model import build_model
 
-data_dir = '/home/room/dataset/Humpback_Whale/'
+data_dir = '/home/ys1/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
 SUB_Df = os.path.join(data_dir, 'sample_submission.csv')
 TRAIN = os.path.join(data_dir, 'train/')
@@ -358,7 +358,8 @@ p2bb = pd.read_csv(BB_DF).set_index("Image")
 old_stderr = sys.stderr
 sys.stderr = open('/dev/null' if platform.system() != 'Windows' else 'nul', 'w')
 sys.stderr = old_stderr
-img_shape = (384, 384, 1)  # The image shape used by the model
+# img_shape = (384, 384, 1)  # The image shape used by the model
+img_shape = (512, 512, 1)
 anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
@@ -409,8 +410,11 @@ for p, w in tagged.items():
 known = sorted(list(h2ws.keys()))
 
 # Evaluate the model.
+print('predict fknown start')
 fknown = branch_model.predict_generator(FeatureGen(known), max_queue_size=20, workers=12, verbose=0)
+print('predict fsubmit start')
 fsubmit = branch_model.predict_generator(FeatureGen(submit), max_queue_size=20, workers=12, verbose=0)
+print('predict score start')
 score = head_model.predict_generator(ScoreGen(fknown, fsubmit), max_queue_size=20, workers=12, verbose=0)
 score = score_reshape(score, fknown, fsubmit)
 
