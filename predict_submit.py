@@ -44,8 +44,8 @@ TEST = os.path.join(data_dir, 'test/')
 P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes.csv')
-# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
-MPIOTTE_STANDARD_MODEL = 'experiments/binary_crossentropy_no_anisotropy_imgsize512/models/model_finetuning.h5'
+# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-bootstrap.model')
+MPIOTTE_STANDARD_MODEL = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_finetuning/models/weights_finetuning_epoch650.h5'
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
@@ -393,8 +393,9 @@ histories = []
 steps = 0
 
 if isfile(MPIOTTE_STANDARD_MODEL):
-    tmp = keras.models.load_model(MPIOTTE_STANDARD_MODEL)
-    model.set_weights(tmp.get_weights())
+    # tmp = keras.models.load_model(p)
+    # model.set_weights(tmp.get_weights())
+    model.load_weights(MPIOTTE_STANDARD_MODEL)
 else:
     print('no model file!!!')
 
@@ -419,6 +420,8 @@ score = score_reshape(score, fknown, fsubmit)
 
 # Generate the subsmission file.
 time_now = datetime.now()
+if not os.path.exists('submit'):
+    os.mkdir('submit')
 submission_file = f"submit/submission_{time_now}.csv"
 prepare_submission(0.99, submission_file)
 toc = time.time()
