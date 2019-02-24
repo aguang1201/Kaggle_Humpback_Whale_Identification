@@ -53,15 +53,12 @@ tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
 batch_size = 32             #image_size=512
-# batch_size = 56           #image_size=384
 workers = 12
 max_queue_size = 10
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-# img_shape = (384, 384, 1)  # The image shape used by the model
 img_shape = (512, 512, 1)
 # anisotropy = 2.15  # The horizontal compression ratio
-# crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
-crop_margin = 0
+crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
 class TrainingData(Sequence):
     def __init__(self, score, steps=1000, batch_size=32):
@@ -617,8 +614,6 @@ histories = []
 steps = 0
 
 if isfile(MPIOTTE_STANDARD_MODEL):
-    # tmp = keras.models.load_model(MPIOTTE_STANDARD_MODEL)
-    # model.set_weights(tmp.get_weights())
     model.load_weights(MPIOTTE_STANDARD_MODEL)
 
 # epoch -> 10

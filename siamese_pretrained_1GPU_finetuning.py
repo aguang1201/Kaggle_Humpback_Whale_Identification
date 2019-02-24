@@ -46,14 +46,12 @@ TEST = os.path.join(data_dir, 'test/')
 P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes_concat.csv')
-# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
 output_dir = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_shenxing'
 MPIOTTE_STANDARD_MODEL = os.path.join('experiments/binary_crossentropy_no_anisotropy_imgsize512/models/weights_finetuning_epoch250.h5')
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
-batch_size = 56             #image_size=512
-# batch_size = 56           #image_size=384
+batch_size = 32
 workers = 12
 max_queue_size = 10
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
@@ -533,7 +531,6 @@ p2bb = pd.read_csv(BB_DF).set_index("Image")
 old_stderr = sys.stderr
 sys.stderr = open('/dev/null' if platform.system() != 'Windows' else 'nul', 'w')
 sys.stderr = old_stderr
-# img_shape = (384, 384, 1)  # The image shape used by the model
 img_shape = (512, 512, 1)
 # anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
