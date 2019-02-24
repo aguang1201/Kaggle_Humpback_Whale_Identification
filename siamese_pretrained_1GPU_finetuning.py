@@ -38,7 +38,7 @@ from datetime import datetime
 from losses import focal_loss
 from build_model import build_model
 
-data_dir = '/home/room/dataset/Humpback_Whale/'
+data_dir = '/home/ys1/dataset/Humpback_Whale/'
 TRAIN_DF = os.path.join(data_dir, 'train.csv')
 SUB_Df = os.path.join(data_dir, 'sample_submission.csv')
 TRAIN = os.path.join(data_dir, 'train/')
@@ -46,17 +46,17 @@ TEST = os.path.join(data_dir, 'test/')
 P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes_concat.csv')
-output_dir = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_shenxing'
 # MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
-# MPIOTTE_STANDARD_MODEL = 'experiments/binary_crossentropy_no_anisotropy_imgsize512/models/model_finetuning_epoch250.h5'
-MPIOTTE_STANDARD_MODEL = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_finetuning/models/model_finetuning_epoch650.h5'
+output_dir = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_shenxing'
+MPIOTTE_STANDARD_MODEL = os.path.join('experiments/binary_crossentropy_no_anisotropy_imgsize512/models/weights_finetuning_epoch250.h5')
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
-batch_size = 30             #image_size=512
+batch_size = 56             #image_size=512
 # batch_size = 56           #image_size=384
-workers = 10
+workers = 12
 max_queue_size = 10
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 
 class TrainingData(Sequence):
     def __init__(self, score, steps=1000, batch_size=32):
@@ -461,6 +461,7 @@ def prepare_submission(threshold, filename):
     return vtop, vhigh, pos
 
 set_sess_cfg()
+
 models_dir = os.path.join(output_dir, 'models')
 if not os.path.isdir(models_dir):
     os.makedirs(models_dir)
@@ -534,13 +535,12 @@ sys.stderr = open('/dev/null' if platform.system() != 'Windows' else 'nul', 'w')
 sys.stderr = old_stderr
 # img_shape = (384, 384, 1)  # The image shape used by the model
 img_shape = (512, 512, 1)
-anisotropy = 2.15  # The horizontal compression ratio
+# anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
 # p = list(tagged.keys())[312]
 
 model, branch_model, head_model = build_model(lr=64e-5, l2=0, img_shape=img_shape)
-# model, branch_model, head_model = build_model(lr=1e-5, l2=0.0002, img_shape=img_shape)
 model.summary()
 h2ws = {}
 new_whale = 'new_whale'
