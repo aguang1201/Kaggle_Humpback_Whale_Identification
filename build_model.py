@@ -98,6 +98,7 @@ def build_model(lr, l2, img_shape, activation='sigmoid'):
     xb = branch_model(img_b)
     x = head_model([xa, xb])
     model = Model([img_a, img_b], x)
-    # model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
-    model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
+    model.compile(optim, loss=focal_loss(gamma=2., alpha=.5), metrics=['binary_crossentropy', 'acc'])
+    # model.compile(optim, loss='binary_crossentropy', metrics=['binary_crossentropy', 'acc'])
+    print(f'loss_functions is : {model.loss_functions}')
     return model, branch_model, head_model

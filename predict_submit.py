@@ -44,13 +44,13 @@ TEST = os.path.join(data_dir, 'test/')
 P2H = os.path.join(data_dir, 'p2h.pickle')
 P2SIZE = os.path.join(data_dir, 'p2size.pickle')
 BB_DF = os.path.join(data_dir, 'bounding_boxes.csv')
-# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-bootstrap.model')
-MPIOTTE_STANDARD_MODEL = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_finetuning/models/weights_finetuning_epoch650.h5'
+# MPIOTTE_STANDARD_MODEL = os.path.join(data_dir, 'mpiotte-standard.model')
+MPIOTTE_STANDARD_MODEL = 'experiments/binary_crossentropy_no_anisotropy_imgsize512_finetuning_acc099974/models/model_finetuning.h5'
 tagged = dict([(p, w) for _, p, w in read_csv(TRAIN_DF).to_records()])
 submit = [p for _, p, _ in read_csv(SUB_Df).to_records()]
 join = list(tagged.keys()) + submit
-batch_size = 108
-
+batch_size = 112
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 # A Keras generator to evaluate only the BRANCH MODEL
 class FeatureGen(Sequence):
     def __init__(self, data, batch_size=64, verbose=1):
@@ -360,12 +360,13 @@ sys.stderr = open('/dev/null' if platform.system() != 'Windows' else 'nul', 'w')
 sys.stderr = old_stderr
 # img_shape = (384, 384, 1)  # The image shape used by the model
 img_shape = (512, 512, 1)
-anisotropy = 2.15  # The horizontal compression ratio
+# anisotropy = 2.15  # The horizontal compression ratio
 crop_margin = 0.05  # The margin added around the bounding box to compensate for bounding box inaccuracy
 
 # p = list(tagged.keys())[312]
 
 model, branch_model, head_model = build_model(lr=64e-5, l2=0, img_shape=img_shape)
+# model, branch_model, head_model = build_model(lr=1e-5, l2=0.0002, img_shape=img_shape)
 model.summary()
 h2ws = {}
 new_whale = 'new_whale'
@@ -393,7 +394,7 @@ histories = []
 steps = 0
 
 if isfile(MPIOTTE_STANDARD_MODEL):
-    # tmp = keras.models.load_model(p)
+    # tmp = keras.models.load_model(MPIOTTE_STANDARD_MODEL)
     # model.set_weights(tmp.get_weights())
     model.load_weights(MPIOTTE_STANDARD_MODEL)
 else:
@@ -411,18 +412,17 @@ known = sorted(list(h2ws.keys()))
 
 # Evaluate the model.
 print('predict fknown start')
-fknown = branch_model.predict_generator(FeatureGen(known), max_queue_size=20, workers=12, verbose=0)
+fknown = branch_model.predict_generator(FeatureGen(known), max_queue_size=10, workers=8, verbose=0)
 print('predict fsubmit start')
-fsubmit = branch_model.predict_generator(FeatureGen(submit), max_queue_size=20, workers=12, verbose=0)
+fsubmit = branch_model.predict_generator(FeatureGen(submit), max_queue_size=10, workers=8, verbose=0)
 print('predict score start')
-score = head_model.predict_generator(ScoreGen(fknown, fsubmit), max_queue_size=20, workers=12, verbose=0)
+score = head_model.predict_generator(ScoreGen(fknown, fsubmit), max_queue_size=10, workers=8, verbose=0)
 score = score_reshape(score, fknown, fsubmit)
 
 # Generate the subsmission file.
 time_now = datetime.now()
-if not os.path.exists('submit'):
-    os.mkdir('submit')
-submission_file = f"submit/submission_{time_now}.csv"
+submission_file = f"submit/submission_threshhold099_{time_now}.csv"
 prepare_submission(0.99, submission_file)
+# prepare_submission(0.92, submission_file)
 toc = time.time()
 print("Submission time: ", (toc - tic) / 60.)
